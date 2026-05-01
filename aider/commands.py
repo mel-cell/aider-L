@@ -387,6 +387,22 @@ class Commands:
         except (EOFError, KeyboardInterrupt):
             return
 
+    def cmd_repo(self, args):
+        "Run Mellow Repo check (status, changes, history)"
+        import subprocess
+        subprocess.run(["bash", "/home/senvada/aider/.mellow/skills/mellow-status.sh"])
+
+    def cmd_skills(self, args):
+        "List all available Mellow skills"
+        import subprocess
+        subprocess.run(["bash", "/home/senvada/aider/.mellow/skills/mellow-skills.sh"])
+
+    def cmd_check(self, args):
+        "Run Mellow Code Quality check"
+        import subprocess
+        subprocess.run(["bash", "/home/senvada/aider/.mellow/skills/mellow-check.sh"])
+
+
     def cmd_web(self, args, return_content=False):
         "Scrape a webpage, convert to markdown and send in a message"
 

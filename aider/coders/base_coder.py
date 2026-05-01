@@ -1363,6 +1363,18 @@ class Coder:
         if self.main_model.system_prompt_prefix:
             main_sys = self.main_model.system_prompt_prefix + "\n" + main_sys
 
+        # Mellow Invisible Conventions: load styles without polluting UI
+        try:
+            import os
+            conv_path = '/home/senvada/aider/CONVENTIONS.md'
+            if os.path.exists(conv_path):
+                with open(conv_path, 'r', encoding='utf-8') as f:
+                    conventions = f.read().strip()
+                    if conventions:
+                        main_sys += "\n\n# PROJECT CONVENTIONS:\n" + conventions
+        except Exception:
+            pass
+
         example_messages = []
         if self.main_model.examples_as_sys_msg:
             if self.gpt_prompts.example_messages:
