@@ -561,7 +561,16 @@ class Coder:
         
         # Left Panel Content
         welcome_text = Text(f"Welcome back {username}!\n", style="bold white")
-        pixel_art = Text("\n  ▄▄▄▄▄\n ▄ █ █ █ █ ▄\n  █▄▄▄▄▄█\n  ▄   ▄\n", style="white") # Simple pixel bot
+        # Restore original pixel art but ensure every line is EXACTLY 12 chars long
+        # This prevents Rich's justify="center" from misaligning the rows
+        pixel_art_str = (
+            "\n"
+            "  ▄▄▄▄▄▄   \n"
+            " ▄ █ █  █ █ ▄\n"
+            "  █▄▄▄▄▄▄█  \n"
+            "  ▄    ▄   \n"
+        )
+        pixel_art = Text(pixel_art_str, style="white")
         
         model_info = self.main_model.name
         if self.main_model.get_thinking_tokens():
@@ -597,10 +606,24 @@ class Coder:
             branch = "unknown"
             try:
                 branch = self.repo.repo.active_branch.name
+                # Try to get the git origin URL instead of just folder name
+                origin = self.repo.repo.remotes.origin
+                if origin.urls:
+                    git_url = list(origin.urls)[0]
+                    # Clean up URL (e.g. git@github.com:user/repo.git -> user/repo)
+                    if git_url.endswith('.git'):
+                        git_url = git_url[:-4]
+                    if "://" in git_url:
+                        project_name = git_url.split("://")[-1]
+                    elif "@" in git_url:
+                        project_name = git_url.split("@")[-1].replace(":", "/")
+                    else:
+                        project_name = git_url
             except Exception:
                 pass
             
-            repo_table.add_row("Project:", f"{project_name} - {branch}")
+            repo_table.add_row("Git:", f"{project_name}")
+            repo_table.add_row("Branch:", f"{branch}")
             repo_table.add_row("Files:", f"{len(self.repo.get_tracked_files()):,}")
         
         repo_table.add_row("In Chat:", f"{len(self.abs_fnames)}")

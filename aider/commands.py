@@ -207,14 +207,185 @@ class Commands:
         return models
 
     def cmd_models(self, args):
-        "Search the list of available models"
+        "Search the list of available models, or pick from recommended models"
 
         args = args.strip()
 
         if args:
             models.print_matching_models(self.io, args)
-        else:
-            self.io.tool_output("Please provide a partial model name to search for.")
+            return
+
+        import os
+
+        # Detect configured providers from environment
+        provider_configs = [
+            ("OPENROUTER_API_KEY", "openrouter/", "OpenRouter"),
+            ("GROQ_API_KEY", "groq/", "Groq"),
+            ("OPENAI_API_KEY", "openai/", "OpenAI"),
+            ("ANTHROPIC_API_KEY", "anthropic/", "Anthropic"),
+            ("GOOGLE_API_KEY", "google/", "Google"),
+            ("GEMINI_API_KEY", "gemini/", "Google Gemini"),
+            ("DEEPSEEK_API_KEY", "deepseek/", "DeepSeek"),
+            ("TOGETHER_API_KEY", "together_ai/", "Together AI"),
+        ]
+
+        active_providers = []
+        for env_var, prefix, name in provider_configs:
+            if os.environ.get(env_var):
+                active_providers.append((prefix, name))
+
+        if not active_providers:
+            self.io.tool_error("No API keys found in .env — add at least one provider key.")
+            return
+
+        # Get models only from active providers
+        all_model_names = sorted(litellm.model_cost.keys())
+        provider_models = {}
+        for prefix, pname in active_providers:
+            provider_models[pname] = [m for m in all_model_names if m.startswith(prefix)]
+
+        def get_price_label(model_name):
+            if model_name.endswith(":free") or "-free" in model_name.lower():
+                return "FREE"
+            candidates = [model_name]
+            parts = model_name.split("/")
+            if len(parts) >= 2:
+                candidates.append("/".join(parts[1:]))
+            if len(parts) >= 3:
+                candidates.append("/".join(parts[2:]))
+            candidates.append(parts[-1])
+            for key in candidates:
+                cost_info = litellm.model_cost.get(key, {})
+                input_cost = cost_info.get("input_cost_per_token", 0)
+                if input_cost:
+                    price = input_cost * 1_000_000
+                    return f"${price:.2f}/1M"
+            return "N/A"
+
+        def get_provider_name(model_name):
+            for prefix, pname in active_providers:
+                if model_name.startswith(prefix):
+                    return pname
+            return ""
+
+        # Known free models (not in litellm database, manually curated)
+        known_free_models = [
+            "openrouter/google/gemini-2.0-flash-exp:free",
+            "openrouter/deepseek/deepseek-r1:free",
+            "openrouter/deepseek/deepseek-chat:free",
+            "openrouter/microsoft/phi-3-medium-128k-instruct:free",
+            "openrouter/google/gemini-2.5-flash:free",
+            "openrouter/google/gemini-3-flash-preview:free",
+            "openrouter/qwen/qwen3-235b-a22b:free",
+            "openrouter/meta-llama/llama-3-70b-instruct:free",
+            "groq/llama-3.1-8b-instant",
+            "groq/gemma-7b-it",
+            "groq/meta-llama/llama-4-scout-17b-16e-instruct",
+        ]
+
+        # Filter free models to only include active providers
+        free_models = [m for m in known_free_models
+                       if any(m.startswith(p[0]) for p in active_providers)]
+
+        # Build ordered list: FREE first, then paid (mixed providers)
+        paid_models = []
+        for pname, mlist in provider_models.items():
+            paid_models.extend(mlist)
+
+        # Remove duplicates (in case a free model is also in litellm)
+        seen = set(free_models)
+        paid_models = [m for m in paid_models if m not in seen]
+
+        ordered_models = free_models + paid_models
+
+        # Calculate max length for neat alignment
+        max_name_len = max((len(m) for m in ordered_models), default=40)
+        max_name_len = min(max_name_len + 2, 70) # Add a little padding, cap at 70
+
+        from prompt_toolkit.completion import Completer as PTCompleter
+        from prompt_toolkit.completion import Completion as PTCompletion
+        from prompt_toolkit.shortcuts import CompleteStyle
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.styles import Style as PTStyle
+
+        class ModelPickerCompleter(PTCompleter):
+            def __init__(self, model_list):
+                self.model_list = model_list
+
+            def get_completions(self, document, complete_event):
+                text = document.text_before_cursor.lower()
+                for name in self.model_list:
+                    if text in name.lower():
+                        price = get_price_label(name)
+                        provider = get_provider_name(name)
+                        
+                        # Pad price to 9 chars right-aligned, and provider name
+                        meta = f"{price:>9}  [{provider}]"
+                        
+                        # Pad model name so the meta column aligns perfectly
+                        display_text = f"{name:<{max_name_len}}"
+                        
+                        yield PTCompletion(
+                            name,
+                            start_position=-len(document.text_before_cursor),
+                            display=display_text,
+                            display_meta=meta,
+                        )
+
+        completer = ModelPickerCompleter(ordered_models)
+
+        style = PTStyle.from_dict({
+            "completion-menu": "noinherit",
+            "completion-menu.completion": "noinherit #888888",
+            "completion-menu.completion.current": "noinherit #ffffff bold",
+            "completion-menu.meta": "noinherit #555555",
+            "completion-menu.meta.current": "noinherit #aaaaaa bold",
+            "scrollbar.background": "noinherit",
+            "scrollbar.button": "#333333",
+            "": "#ffffff",
+        })
+
+        session = PromptSession(style=style)
+
+        providers_str = ", ".join(p[1] for p in active_providers)
+        self.io.tool_output(
+            f"Providers: {providers_str} ({len(ordered_models)} models)"
+        )
+        self.io.tool_output("Type to filter, arrow keys to browse, Enter to select, Ctrl+C to cancel")
+
+        try:
+            def pre_run():
+                session.default_buffer.start_completion(select_first=False)
+
+            result = session.prompt(
+                "model > ",
+                completer=completer,
+                complete_while_typing=True,
+                complete_style=CompleteStyle.READLINE_LIKE,
+                pre_run=pre_run,
+                reserve_space_for_menu=20,
+            )
+
+            if not result or not result.strip():
+                return
+
+            result = result.strip()
+            self.io.tool_output(f"Switching to {result}...")
+            model = models.Model(
+                result,
+                editor_model=self.coder.main_model.editor_model.name,
+                weak_model=self.coder.main_model.weak_model.name,
+            )
+            models.sanity_check_models(self.io, model)
+            old_model_edit_format = self.coder.main_model.edit_format
+            current_edit_format = self.coder.edit_format
+            new_edit_format = current_edit_format
+            if current_edit_format == old_model_edit_format:
+                new_edit_format = model.edit_format
+            raise SwitchCoder(main_model=model, edit_format=new_edit_format)
+
+        except (EOFError, KeyboardInterrupt):
+            return
 
     def cmd_web(self, args, return_content=False):
         "Scrape a webpage, convert to markdown and send in a message"
