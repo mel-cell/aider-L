@@ -27,6 +27,12 @@ from pathlib import Path
 from typing import List
 
 from rich.console import Console
+from rich.panel import Panel
+from rich.columns import Columns
+from rich.table import Table
+from rich import box
+from rich.text import Text
+from rich.align import Align
 
 from aider import __version__, models, prompts, urls, utils
 from aider.analytics import Analytics
@@ -548,10 +554,115 @@ class Coder:
             self.linter.set_linter(lang, cmd)
 
     def show_announcements(self):
-        bold = True
+        import getpass
+        username = getpass.getuser().capitalize()
+        
+        # Build the Claude-style dashboard
+        
+        # Left Panel Content
+        welcome_text = Text(f"Welcome back {username}!\n", style="bold white")
+        pixel_art = Text("\n  ▄▄▄▄▄\n ▄ █ █ █ █ ▄\n  █▄▄▄▄▄█\n  ▄   ▄\n", style="white") # Simple pixel bot
+        
+        model_info = self.main_model.name
+        if self.main_model.get_thinking_tokens():
+            model_info += f" • Think {self.main_model.get_thinking_tokens()}"
+        
+        cwd = str(Path.cwd()).replace(str(Path.home()), "~")
+        
+        left_content = Text.assemble(
+            welcome_text,
+            pixel_art,
+            "\n",
+            (f"{model_info}\n", "bright_black"),
+            (f"{cwd}", "bright_black"),
+            justify="center"
+        )
+        
+        left_panel = Panel(
+            Align.center(left_content, vertical="middle"),
+            title=f"mellow code v{__version__}",
+            border_style="bright_black",
+            box=box.SQUARE,
+            padding=(1, 2),
+            expand=True
+        )
+        
+        # Right Panel Content (Project Context)
+        repo_table = Table.grid(padding=(0, 1))
+        repo_table.add_column(style="bright_black", justify="left")
+        repo_table.add_column(style="white", justify="left")
+        
+        if self.repo:
+            project_name = Path(self.repo.root).name
+            branch = "unknown"
+            try:
+                branch = self.repo.repo.active_branch.name
+            except Exception:
+                pass
+            
+            repo_table.add_row("Project:", f"{project_name} - {branch}")
+            repo_table.add_row("Files:", f"{len(self.repo.get_tracked_files()):,}")
+        
+        repo_table.add_row("In Chat:", f"{len(self.abs_fnames)}")
+        
+        if self.total_cost:
+            repo_table.add_row("Cost:", f"${self.total_cost:.2f}")
+        
+        if self.repo_map:
+            repo_table.add_row("Map:", f"{self.repo_map.max_map_tokens}")
+
+        right_top_panel = Panel(
+            repo_table,
+            title="Project Context",
+            border_style="bright_black",
+            box=box.SQUARE,
+            padding=(1, 2),
+            expand=True
+        )
+        
+        # Bottom Right Panel (Quick Info / Cheatsheet)
+        info_table = Table.grid(padding=(0, 1))
+        info_table.add_column(style="white", justify="left")
+        info_table.add_column(style="bright_black", justify="left")
+        
+        commands = [
+            ("/help", "show commands"),
+            ("/exit", "quit mellow code"),
+            ("Ctrl+C", "interrupt"),
+        ]
+        
+        for cmd, desc in commands:
+            info_table.add_row(cmd, f" {desc}")
+            
+        right_bottom_panel = Panel(
+            info_table,
+            title="Quick Info",
+            border_style="bright_black",
+            box=box.SQUARE,
+            padding=(0, 1),
+            expand=True
+        )
+        
+        # Main Layout
+        grid = Table.grid(expand=True, padding=1)
+        grid.add_column(ratio=1)
+        grid.add_column(ratio=1)
+        
+        # Right stack
+        right_stack = Table.grid(expand=True)
+        right_stack.add_row(right_top_panel)
+        right_stack.add_row(right_bottom_panel)
+        
+        grid.add_row(left_panel, right_stack)
+        
+        self.io.console.print("\n")
+        self.io.console.print(grid)
+        self.io.console.print("\n")
+        
+        # Still show added files if any
         for line in self.get_announcements():
-            self.io.tool_output(line, bold=bold)
-            bold = False
+            if "Added" in line or "Restored" in line:
+                self.io.tool_output(line, bold=False)
 
     def add_rel_fname(self, rel_fname):
         self.abs_fnames.add(self.abs_root_path(rel_fname))

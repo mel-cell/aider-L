@@ -327,8 +327,8 @@ def get_parser(default_config_files, git_root):
     )
     group.add_argument(
         "--user-input-color",
-        default="#00cc00",
-        help="Set the color for user input (default: #00cc00)",
+        default="white",
+        help="Set the color for user input (default: white)",
     )
     group.add_argument(
         "--tool-output-color",

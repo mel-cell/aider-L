@@ -242,16 +242,16 @@ class InputOutput:
         chat_history_file=None,
         input=None,
         output=None,
-        user_input_color="blue",
+        user_input_color="white",
         tool_output_color=None,
-        tool_error_color="red",
-        tool_warning_color="#FFA500",
-        assistant_output_color="blue",
+        tool_error_color="white",
+        tool_warning_color="bright_black",
+        assistant_output_color="bright_white",
         completion_menu_color=None,
         completion_menu_bg_color=None,
         completion_menu_current_color=None,
         completion_menu_current_bg_color=None,
-        code_theme="default",
+        code_theme="monokai",
         encoding="utf-8",
         line_endings="platform",
         dry_run=False,
@@ -508,7 +508,7 @@ class InputOutput:
 
     def rule(self):
         if self.pretty:
-            style = dict(style=self.user_input_color) if self.user_input_color else dict()
+            style = dict(style="bright_black")
             self.console.rule(**style)
         else:
             print()
@@ -547,7 +547,7 @@ class InputOutput:
             prompt_prefix += edit_format
         if self.multiline_mode:
             prompt_prefix += (" " if edit_format else "") + "multi"
-        prompt_prefix += "> "
+        prompt_prefix += "❯ "
 
         show += prompt_prefix
         self.prompt_prefix = prompt_prefix
